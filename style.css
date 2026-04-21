@@ -163,6 +163,12 @@ header {
     justify-content: center;
     align-items: center;
     position: relative;
+    filter: brightness(0); /* Hidden by default */
+    transition: filter 0.5s;
+}
+
+.tile.explored {
+    filter: brightness(1);
 }
 
 .tile.grass { background: #3a5a40; }

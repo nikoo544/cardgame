@@ -53,12 +53,12 @@ class QuestGame {
     }
 
     generateMap() {
-        // Deterministic-ish map if host
         for (let i = 0; i < 225; i++) {
             const type = TILE_TYPES[Math.floor(Math.random() * TILE_TYPES.length)];
             const hasEvent = Math.random() < 0.15;
-            this.map[i] = { type, event: hasEvent ? Math.floor(Math.random() * EVENTS.length) : null };
+            this.map[i] = { type, event: hasEvent ? Math.floor(Math.random() * EVENTS.length) : null, explored: false };
         }
+        this.revealSurroundings(this.localPlayer.pos);
     }
 
     initUI() {
@@ -85,7 +85,8 @@ class QuestGame {
         this.ui.map.innerHTML = '';
         for (let i = 0; i < 225; i++) {
             const tile = document.createElement('div');
-            tile.className = `tile ${this.map[i].type}`;
+            const mapTile = this.map[i];
+            tile.className = `tile ${mapTile.type} ${mapTile.explored ? 'explored' : ''}`;
             tile.dataset.index = i;
 
             if (this.localPlayer.pos === i) {
@@ -128,27 +129,60 @@ class QuestGame {
 
     checkEvent(index) {
         const tile = this.map[index];
+        tile.explored = true; // Clear Fog of War
+        this.revealSurroundings(index);
+
         if (tile.event !== null) {
             const event = EVENTS[tile.event];
-            this.ui.eventContent.innerText = event.msg;
-            this.log(`Evento: ${event.msg}`);
             
-            // Apply rewards/damage
-            if (event.reward) {
-                if (event.reward.gold) this.localPlayer.gold += event.reward.gold;
-                if (event.reward.xp) this.localPlayer.xp += event.reward.xp;
-                if (event.reward.hp) this.localPlayer.hp = Math.min(100, this.localPlayer.hp + event.reward.hp);
+            if (event.type === 'COMBAT') {
+                this.startCombatEvent(event);
+            } else {
+                this.applyEvent(event);
             }
-            if (event.damage) {
-                this.localPlayer.hp -= event.damage;
-                this.log(`Recibes ${event.damage} de daño.`);
-            }
-
-            this.updatePlayerDisplay();
-            tile.event = null; // Event used
+            tile.event = null;
         } else {
             this.ui.eventContent.innerText = "El camino está despejado.";
         }
+    }
+
+    revealSurroundings(index) {
+        const r = Math.floor(index / 15), c = index % 15;
+        for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+                const ni = (r + dr) * 15 + (c + dc);
+                if (ni >= 0 && ni < 225) this.map[ni].explored = true;
+            }
+        }
+    }
+
+    startCombatEvent(event) {
+        this.ui.eventContent.innerHTML = `<strong>${event.msg}</strong><br>¡Prepara tu dado!`;
+        const rollBtn = document.createElement('button');
+        rollBtn.className = 'action-btn';
+        rollBtn.innerText = 'LANZAR d20';
+        rollBtn.onclick = () => {
+            const roll = Math.floor(Math.random() * 20) + 1;
+            const damage = Math.max(0, event.damage - Math.floor(roll/2));
+            this.localPlayer.hp -= damage;
+            this.localPlayer.xp += event.reward.xp;
+            this.log(`Sacaste un ${roll}. Recibes ${damage} de daño. +${event.reward.xp} XP.`);
+            this.updatePlayerDisplay();
+            rollBtn.remove();
+            this.ui.eventContent.innerText = "Combate finalizado.";
+        };
+        this.ui.eventChoices.appendChild(rollBtn);
+    }
+
+    applyEvent(event) {
+        this.ui.eventContent.innerText = event.msg;
+        this.log(`Evento: ${event.msg}`);
+        if (event.reward) {
+            if (event.reward.gold) this.localPlayer.gold += event.reward.gold;
+            if (event.reward.xp) this.localPlayer.xp += event.reward.xp;
+            if (event.reward.hp) this.localPlayer.hp = Math.min(100, this.localPlayer.hp + event.reward.hp);
+        }
+        this.updatePlayerDisplay();
     }
 
     updatePlayerDisplay() {
@@ -180,17 +214,26 @@ class QuestGame {
     initPeer() {
         const params = new URLSearchParams(window.location.search);
         const joinId = params.get('join');
+        const welcomeStatus = document.getElementById('welcome-status');
         this.peer = new Peer();
 
         this.peer.on('open', (id) => {
+            const msg = joinId ? `Conectando...` : `SALA: ${id}`;
+            this.ui.status.innerText = msg;
+            if(welcomeStatus) welcomeStatus.innerText = msg;
             if (!joinId) {
-                this.ui.status.innerText = `ID: ${id}`;
                 this.log('Mundo creado. Esperando viajero...');
             } else {
                 this.localPlayerNum = 2;
-                this.localPlayer.pos = 14; // Start top right
+                this.localPlayer.pos = 14; 
                 this.connect(joinId);
             }
+        });
+
+        this.peer.on('error', (err) => {
+            console.error(err);
+            this.ui.status.innerText = "Error de conexión";
+            if(welcomeStatus) welcomeStatus.innerText = "Error. Recarga la página.";
         });
 
         this.peer.on('connection', (conn) => {
