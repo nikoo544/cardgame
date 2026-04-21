@@ -230,7 +230,7 @@ header {
 
 .stance-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-#roll-btn {
+#roll-btn, .special-btn {
     background: var(--crimson);
     color: white;
     border: 2px solid var(--gold);
@@ -243,7 +243,20 @@ header {
     transition: 0.1s;
 }
 
-#roll-btn:active { transform: translateY(4px); box-shadow: none; }
+.special-btn {
+    background: var(--gold);
+    color: var(--text-dark);
+    box-shadow: 0 4px 0 #9a7b0d, 0 0 20px rgba(212, 175, 55, 0.4);
+    animation: pulse-gold 2s infinite;
+}
+
+@keyframes pulse-gold {
+    0% { box-shadow: 0 0 10px rgba(212, 175, 55, 0.4); }
+    50% { box-shadow: 0 0 25px rgba(212, 175, 55, 0.8); }
+    100% { box-shadow: 0 0 10px rgba(212, 175, 55, 0.4); }
+}
+
+#roll-btn:active, .special-btn:active { transform: translateY(4px); box-shadow: none; }
 #roll-btn:disabled { opacity: 0.3; filter: grayscale(1); }
 
 @keyframes shake {

@@ -94,15 +94,20 @@ class DungeonGame {
                 this.checkReveal();
                 break;
             case 'DICE_ROLL':
-                this.remoteRoll = data.value;
+                this.remoteRoll = Number(data.value);
                 this.log(`El rival ha lanzado su dado.`);
                 this.checkResolution();
                 break;
             case 'SYNC':
-                // Final safety sync of HP
-                this.localHP = data.oppHP; 
-                this.remoteHP = data.myHP;
-                this.updateUI();
+                // Strict number check
+                if (typeof data.value.oppHP === 'number' && typeof data.value.myHP === 'number') {
+                    this.localHP = data.value.oppHP; 
+                    this.remoteHP = data.value.myHP;
+                    this.updateUI();
+                }
+                break;
+            case 'SKILL_EVENT':
+                this.triggerRemoteSkill(data.value);
                 break;
         }
     }
@@ -198,28 +203,84 @@ class DungeonGame {
     }
 
     resolveTurn() {
+        if (isNaN(this.localRoll) || isNaN(this.remoteRoll)) {
+            this.log('Error de sincronización en los dados. Reintentando...');
+            return;
+        }
+
         const diff = this.localRoll - this.remoteRoll;
         
         if(diff > 0) {
-            this.remoteHP -= diff;
+            this.remoteHP = Math.max(0, this.remoteHP - diff);
             this.log(`¡ÉXITO! Infliges ${diff} de daño al rival.`);
         } else if(diff < 0) {
-            this.localHP -= Math.abs(diff);
-            this.log(`¡FRACASO! Recibes ${Math.abs(diff)} de daño.`);
+            const damage = Math.abs(diff);
+            this.localHP = Math.max(0, this.localHP - damage);
+            this.log(`¡FRACASO! Recibes ${damage} de daño.`);
         } else {
             this.log('¡Empate en el fragor de la batalla!');
         }
 
         this.updateUI();
-        
-        // Sync HP for safety
         this.send('SYNC', { myHP: this.localHP, oppHP: this.remoteHP });
 
         if(this.localHP <= 0 || this.remoteHP <= 0) {
             this.endGame();
         } else {
+            // Skill charge logic
+            this.roundCount = (this.roundCount || 0) + 1;
+            if (this.roundCount % 2 === 0) {
+                this.enableSkill();
+            }
             setTimeout(() => this.startRound(), 3500);
         }
+    }
+
+    enableSkill() {
+        this.ui.phase.innerText = '¡HABILIDAD CARGADA!';
+        this.log('Tus dioses te observan... Puedes usar una Habilidad Especial.');
+        const skillBtn = document.createElement('button');
+        skillBtn.id = 'special-skill';
+        skillBtn.innerText = '✨ INTERVENCIÓN DIVINA';
+        skillBtn.className = 'special-btn';
+        skillBtn.style.marginTop = '10px';
+        skillBtn.onclick = () => this.useSkill(skillBtn);
+        this.ui.phase.parentElement.appendChild(skillBtn);
+    }
+
+    useSkill(btn) {
+        btn.remove();
+        const d100 = Math.floor(Math.random() * 100) + 1;
+        this.log(`¡Invocas la Intervención Divina! Resultado: d100 = ${d100}`);
+        
+        let effect = '';
+        if (d100 > 80) {
+            this.localHP = Math.min(100, this.localHP + 20);
+            effect = 'HEAL';
+            this.log('¡Los dioses te sonríen! Recuperas 20 HP.');
+        } else if (d100 < 20) {
+            this.localHP -= 10;
+            effect = 'CURSE';
+            this.log('¡Has sido maldecido! Pierdes 10 HP.');
+        } else {
+            effect = 'NONE';
+            this.log('Los cielos permanecen en silencio.');
+        }
+
+        this.updateUI();
+        this.send('SKILL_EVENT', { d100, effect, hp: this.localHP });
+    }
+
+    triggerRemoteSkill(data) {
+        this.log(`El rival invoca una Intervención Divina (d100 = ${data.d100}).`);
+        if (data.effect === 'HEAL') {
+            this.remoteHP = Math.min(100, this.remoteHP + 20);
+            this.log('El rival ha sido bendecido.');
+        } else if (data.effect === 'CURSE') {
+            this.remoteHP -= 10;
+            this.log('El rival ha sido maldecido.');
+        }
+        this.updateUI();
     }
 
     updateUI() {
