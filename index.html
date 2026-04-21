@@ -28,11 +28,8 @@
                         <div class="monster-image"></div>
                         <div class="monster-info">
                             <span class="name">MULTIVAC_CORE</span>
-                            <span class="element">VOID</span>
+                            <span id="opponent-stance-display" class="element">???</span>
                         </div>
-                    </div>
-                    <div class="hand" id="opponent-hand">
-                        <!-- Cards will be rendered here -->
                     </div>
                 </section>
 
@@ -50,18 +47,22 @@
 
                 <!-- Player Area -->
                 <section id="player-area" class="player-zone">
-                    <div class="hand" id="player-hand">
-                        <!-- Cards will be rendered here -->
+                    <div id="selection-zone" class="selection-grid">
+                        <button class="stance-btn" data-stance="FIRE">🔥 FUEGO</button>
+                        <button class="stance-btn" data-stance="WATER">💧 AGUA</button>
+                        <button class="stance-btn" data-stance="EARTH">🌿 TIERRA</button>
                     </div>
                     <div class="monster-card" id="player-monster">
                         <div class="hp-bar"><div class="hp-fill" style="width: 100%;"></div></div>
                         <div class="monster-image"></div>
                         <div class="monster-info">
                             <span class="name">USER_CORE</span>
-                            <span class="element">NEUTRAL</span>
+                            <span id="player-stance-display" class="element">ESPERANDO...</span>
                         </div>
                     </div>
                 </section>
+
+                <div id="phase-indicator">FASE: PREPARACIÓN</div>
             </main>
 
             <footer>

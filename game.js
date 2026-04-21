@@ -1,16 +1,11 @@
-// Elemental Nexus: Multivac's Gambit - Logic Engine
+// Elemental Nexus: Multivac's Gambit - Logic Engine v2 (RPS + Dice)
 // Using PeerJS for P2P connection
 
-const ELEMENTS = ['FIRE', 'WATER', 'EARTH', 'AIR', 'VOID'];
-const CARD_TYPES = ['ATTACK', 'EFFECT', 'HEAL'];
-
-const CARD_POOL = [
-    { name: 'Overclock Strike', type: 'ATTACK', element: 'FIRE', value: 10, desc: 'Damage * Roll/2' },
-    { name: 'Binary Shield', type: 'EFFECT', element: 'VOID', value: 5, desc: 'Reduce next damage' },
-    { name: 'Packet Leak', type: 'HEAL', element: 'WATER', value: 15, desc: 'Heal core' },
-    { name: 'Logic Bomb', type: 'ATTACK', element: 'AIR', value: 20, desc: 'High risk roll' },
-    { name: 'Data Corruption', type: 'EFFECT', element: 'EARTH', value: 8, desc: 'Reduce opponent roll' }
-];
+const STANCES = {
+    FIRE: { beats: 'EARTH', label: '🔥 FUEGO', color: '#ff4b2b' },
+    WATER: { beats: 'FIRE', label: '💧 AGUA', color: '#00d2ff' },
+    EARTH: { beats: 'WATER', label: '🌿 TIERRA', color: '#a8ff78' }
+};
 
 class GameManager {
     constructor() {
@@ -18,12 +13,12 @@ class GameManager {
         this.conn = null;
         this.isHost = false;
         this.gameState = {
-            turn: 0,
-            currentPlayer: null,
-            players: {
-                local: { hp: 100, hand: [], element: 'NEUTRAL' },
-                remote: { hp: 100, hand: [], element: 'VOID' }
-            }
+            phase: 'WAITING', // WAITING, SELECTION, REVEAL, ACTION
+            localHP: 100,
+            remoteHP: 100,
+            localStance: null,
+            remoteStance: null,
+            clashWinner: null
         };
 
         this.initElements();
@@ -35,40 +30,36 @@ class GameManager {
             log: document.getElementById('battle-log'),
             playerHP: document.querySelector('#player-monster .hp-fill'),
             opponentHP: document.querySelector('#opponent-monster .hp-fill'),
-            playerHand: document.getElementById('player-hand'),
-            opponentHand: document.getElementById('opponent-hand'),
+            playerStance: document.getElementById('player-stance-display'),
+            opponentStance: document.getElementById('opponent-stance-display'),
             die: document.getElementById('die'),
             rollBtn: document.getElementById('roll-btn'),
             status: document.getElementById('connection-status'),
             copyBtn: document.getElementById('copy-link-btn'),
-            drawBtn: document.getElementById('draw-card'),
-            endBtn: document.getElementById('end-turn')
+            phaseInd: document.getElementById('phase-indicator'),
+            stanceBtns: document.querySelectorAll('.stance-btn')
         };
 
-        this.ui.drawBtn.onclick = () => this.drawCard();
-        this.ui.endBtn.onclick = () => this.endTurn();
+        this.ui.stanceBtns.forEach(btn => {
+            btn.onclick = () => this.selectStance(btn.dataset.stance);
+        });
+
         this.ui.rollBtn.onclick = () => this.rollDice();
     }
 
     initPeer() {
-        // Simple P2P setup
         const urlParams = new URLSearchParams(window.location.search);
         const joinId = urlParams.get('join');
-
         this.peer = new Peer();
 
         this.peer.on('open', (id) => {
             if (!joinId) {
                 this.isHost = true;
-                this.gameState.currentPlayer = id;
                 this.log(`ID de Sala: ${id}`);
-                this.log(`Comparte este ID o la URL para jugar.`);
                 this.ui.status.innerText = `ID: ${id}`;
                 this.ui.copyBtn.style.display = 'inline-block';
                 this.ui.copyBtn.onclick = () => this.copyGameLink(id);
-                console.log('Room ID:', id);
             } else {
-                this.isHost = false;
                 this.connectToHost(joinId);
             }
         });
@@ -88,130 +79,146 @@ class GameManager {
     copyGameLink(id) {
         const url = `${window.location.origin}${window.location.pathname}?join=${id}`;
         navigator.clipboard.writeText(url).then(() => {
-            const originalText = this.ui.copyBtn.innerText;
             this.ui.copyBtn.innerText = '¡COPIADO!';
-            setTimeout(() => this.ui.copyBtn.innerText = originalText, 2000);
+            setTimeout(() => this.ui.copyBtn.innerText = 'COPIAR LINK', 2000);
         });
     }
 
     setupConnection() {
         this.conn.on('open', () => {
             this.ui.status.innerText = 'CONECTADO';
-            this.log('Conexión establecida con Multivac Nexus.');
-            this.startGame();
+            this.log('Enlace neuronal establecido.');
+            this.startNewRound();
         });
 
-        this.conn.on('data', (data) => {
-            this.handleRemoteData(data);
-        });
+        this.conn.on('data', (data) => this.handleRemoteData(data));
     }
 
-    startGame() {
-        this.log('Iniciando sistema...');
-        for(let i=0; i<5; i++) this.drawCard(false);
-        this.updateUI();
-    }
-
-    drawCard(log = true) {
-        const card = CARD_POOL[Math.floor(Math.random() * CARD_POOL.length)];
-        this.gameState.players.local.hand.push({ ...card, id: Date.now() + Math.random() });
-        if(log) this.log(`Has robado: ${card.name}`);
-        this.renderHand();
-    }
-
-    renderHand() {
-        this.ui.playerHand.innerHTML = '';
-        this.gameState.players.local.hand.forEach(card => {
-            const el = document.createElement('div');
-            el.className = 'card draw-anim';
-            el.innerHTML = `
-                <div class="card-name">${card.name}</div>
-                <div class="card-element" style="color: var(--neon-cyan)">${card.element}</div>
-                <div class="card-desc">${card.desc}</div>
-            `;
-            el.onclick = () => this.playCard(card);
-            this.ui.playerHand.appendChild(el);
-        });
-    }
-
-    playCard(card) {
-        this.log(`Jugando ${card.name}...`);
-        this.ui.rollBtn.disabled = false;
-        this.currentAction = card;
+    startNewRound() {
+        this.gameState.phase = 'SELECTION';
+        this.gameState.localStance = null;
+        this.gameState.remoteStance = null;
+        this.gameState.clashWinner = null;
         
-        // Remove from hand
-        this.gameState.players.local.hand = this.gameState.players.local.hand.filter(c => c.id !== card.id);
-        this.renderHand();
+        this.ui.phaseInd.innerText = 'FASE: SELECCIÓN DE POSTURA';
+        this.ui.playerStance.innerText = 'ELIGE TU ELEMENTO';
+        this.ui.opponentStance.innerText = '???';
+        this.ui.opponentStance.style.color = 'var(--neon-purple)';
+        
+        this.ui.stanceBtns.forEach(btn => {
+            btn.disabled = false;
+            btn.classList.remove('selected');
+        });
+        this.ui.rollBtn.disabled = true;
+    }
 
-        // Send to peer
-        this.sendData({ type: 'CARD_PLAYED', card });
+    selectStance(stance) {
+        if(this.gameState.phase !== 'SELECTION') return;
+        
+        this.gameState.localStance = stance;
+        this.log(`Postura asumida: ${STANCES[stance].label}`);
+        this.ui.playerStance.innerText = STANCES[stance].label;
+        this.ui.playerStance.style.color = STANCES[stance].color;
+        
+        this.ui.stanceBtns.forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.stance === stance);
+            btn.disabled = true;
+        });
+
+        this.sendData({ type: 'STANCE_SELECTED', stance });
+        this.checkClash();
+    }
+
+    handleRemoteData(data) {
+        switch(data.type) {
+            case 'STANCE_SELECTED':
+                this.gameState.remoteStance = data.stance;
+                this.log('El oponente ha elegido su postura.');
+                this.checkClash();
+                break;
+            case 'DICE_ROLLED':
+                this.resolveBattle(data.roll, data.damage);
+                break;
+        }
+    }
+
+    checkClash() {
+        if (this.gameState.localStance && this.gameState.remoteStance) {
+            this.gameState.phase = 'REVEAL';
+            this.ui.phaseInd.innerText = 'FASE: CHOQUE ELEMENTAL';
+            
+            setTimeout(() => this.resolveClash(), 1000);
+        }
+    }
+
+    resolveClash() {
+        const local = this.gameState.localStance;
+        const remote = this.gameState.remoteStance;
+        
+        this.ui.opponentStance.innerText = STANCES[remote].label;
+        this.ui.opponentStance.style.color = STANCES[remote].color;
+
+        if (local === remote) {
+            this.log('¡Empate elemental! El Nexo está en equilibrio.');
+            this.gameState.clashWinner = 'TIE';
+        } else if (STANCES[local].beats === remote) {
+            this.log(`¡Ventaja local! ${STANCES[local].label} domina a ${STANCES[remote].label}.`);
+            this.gameState.clashWinner = 'LOCAL';
+        } else {
+            this.log(`¡Desventaja! ${STANCES[remote].label} domina a ${STANCES[local].label}.`);
+            this.gameState.clashWinner = 'REMOTE';
+        }
+
+        this.gameState.phase = 'ACTION';
+        this.ui.phaseInd.innerText = 'FASE: ACCIÓN (LANZAR DADO)';
+        
+        if (this.gameState.clashWinner !== 'REMOTE') {
+            this.ui.rollBtn.disabled = false;
+        } else {
+            this.log('Esperando ataque del oponente...');
+        }
     }
 
     rollDice() {
         this.ui.rollBtn.disabled = true;
-        const roll = Math.floor(Math.random() * 6) + 1;
-        this.ui.die.innerText = roll;
         this.ui.die.classList.add('shake');
         
         setTimeout(() => {
             this.ui.die.classList.remove('shake');
-            this.resolveAction(roll);
-        }, 600);
-    }
-
-    resolveAction(roll) {
-        const action = this.currentAction;
-        let damage = 0;
-
-        if(action.type === 'ATTACK') {
-            damage = Math.floor(action.value * (roll / 2));
-            this.gameState.players.remote.hp -= damage;
-            this.log(`¡ATAQUE! Generado ${damage} de daño logico.`);
-        } else if(action.type === 'HEAL') {
-            const heal = action.value + roll;
-            this.gameState.players.local.hp = Math.min(100, this.gameState.players.local.hp + heal);
-            this.log(`REPARACIÓN: +${heal} HP.`);
-        }
-
-        this.updateUI();
-        this.sendData({ type: 'ACTION_RESOLVED', roll, damage, hp: this.gameState.players.local.hp });
-    }
-
-    endTurn() {
-        this.gameState.turn++;
-        this.log('Turno finalizado. Sincronizando con Multivac...');
-        
-        if (this.gameState.turn % 3 === 0) {
-            this.triggerMultivacGlitch();
-        }
-        
-        this.sendData({ type: 'END_TURN', turn: this.gameState.turn });
-    }
-
-    triggerMultivacGlitch() {
-        const glitches = [
-            { name: 'LOGIC_SWAP', desc: '¡Intercambio de datos! HP equilibrado.' },
-            { name: 'ENERGY_SURGE', desc: '¡Sobrecarga! Próximo ataque duplicado.' },
-            { name: 'PACKET_LOSS', desc: '¡Pérdida de paquetes! Ambos jugadores roban una carta.' }
-        ];
-        const glitch = glitches[Math.floor(Math.random() * glitches.length)];
-        this.log(`[ALERTA MULTIVAC] ${glitch.desc}`);
-        
-        if (glitch.name === 'PACKET_LOSS') {
-            this.drawCard();
-        } else if (glitch.name === 'LOGIC_SWAP') {
-            const avg = (this.gameState.players.local.hp + this.gameState.players.remote.hp) / 2;
-            this.gameState.players.local.hp = avg;
-            this.gameState.players.remote.hp = avg;
+            const roll = Math.floor(Math.random() * 20) + 1; // d20
+            const bonus = (this.gameState.clashWinner === 'LOCAL') ? 5 : 0;
+            const totalRoll = roll + bonus;
+            
+            this.ui.die.innerText = totalRoll;
+            
+            const damage = Math.floor(totalRoll * 0.8);
+            this.gameState.remoteHP -= damage;
+            
+            this.log(`¡Impacto crítico! Tirada ${roll} + Bono ${bonus} = ${totalRoll}. Daño: ${damage}.`);
             this.updateUI();
-        }
+            
+            this.sendData({ type: 'DICE_ROLLED', roll: totalRoll, damage });
+            
+            setTimeout(() => this.startNewRound(), 3000);
+        }, 1000);
+    }
+
+    resolveBattle(remoteRoll, damage) {
+        this.ui.die.innerText = remoteRoll;
+        this.gameState.localHP -= damage;
+        this.log(`El oponente ataca con una potencia de ${remoteRoll}. Recibes ${damage} de daño.`);
+        this.updateUI();
         
-        this.sendData({ type: 'GLITCH', glitch });
+        if (this.gameState.localHP <= 0) {
+            this.log('CRITICAL FAILURE: Núcleo destruido.');
+        }
+
+        setTimeout(() => this.startNewRound(), 3000);
     }
 
     updateUI() {
-        this.ui.playerHP.style.width = `${this.gameState.players.local.hp}%`;
-        this.ui.opponentHP.style.width = `${this.gameState.players.remote.hp}%`;
+        this.ui.playerHP.style.width = `${Math.max(0, this.gameState.localHP)}%`;
+        this.ui.opponentHP.style.width = `${Math.max(0, this.gameState.remoteHP)}%`;
     }
 
     log(msg) {
@@ -224,30 +231,6 @@ class GameManager {
     sendData(data) {
         if(this.conn) this.conn.send(data);
     }
-
-    handleRemoteData(data) {
-        switch(data.type) {
-            case 'CARD_PLAYED':
-                this.log(`Oponente juega: ${data.card.name}`);
-                break;
-            case 'ACTION_RESOLVED':
-                this.gameState.players.local.hp = data.remoteHP || this.gameState.players.local.hp;
-                this.gameState.players.remote.hp = data.hp;
-                this.updateUI();
-                this.log(`Oponente sacó un ${data.roll}.`);
-                break;
-            case 'END_TURN':
-                this.gameState.turn = data.turn || this.gameState.turn + 1;
-                this.log('Es tu turno.');
-                this.drawCard();
-                break;
-            case 'GLITCH':
-                this.log(`[RESTRICCIÓN REMOTA] ${data.glitch.desc}`);
-                if (data.glitch.name === 'PACKET_LOSS') this.drawCard();
-                break;
-        }
-    }
 }
 
-// Start Game
 window.game = new GameManager();
