@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elemental Nexus: Multivac's Gambit</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <div id="game-container">
+            <header>
+                <h1 class="glitch-text">ELEMENTAL NEXUS</h1>
+                <div id="connection-controls">
+                    <div id="connection-status">Esperando conexión...</div>
+                    <button id="copy-link-btn" style="display:none; font-size: 0.7rem; padding: 5px 10px;">COPIAR LINK</button>
+                </div>
+            </header>
+
+            <main>
+                <!-- Opponent Area -->
+                <section id="opponent-area" class="player-zone">
+                    <div class="monster-card" id="opponent-monster">
+                        <div class="hp-bar"><div class="hp-fill" style="width: 100%;"></div></div>
+                        <div class="monster-image"></div>
+                        <div class="monster-info">
+                            <span class="name">MULTIVAC_CORE</span>
+                            <span class="element">VOID</span>
+                        </div>
+                    </div>
+                    <div class="hand" id="opponent-hand">
+                        <!-- Cards will be rendered here -->
+                    </div>
+                </section>
+
+                <!-- Battle Log & Dice -->
+                <section id="battle-nexus">
+                    <div id="dice-container">
+                        <div id="die" class="dice">?</div>
+                        <button id="roll-btn" disabled>ROLL LOGIC</button>
+                    </div>
+                    <div id="battle-log">
+                        <p>> System Initialized...</p>
+                        <p>> Awaiting Players...</p>
+                    </div>
+                </section>
+
+                <!-- Player Area -->
+                <section id="player-area" class="player-zone">
+                    <div class="hand" id="player-hand">
+                        <!-- Cards will be rendered here -->
+                    </div>
+                    <div class="monster-card" id="player-monster">
+                        <div class="hp-bar"><div class="hp-fill" style="width: 100%;"></div></div>
+                        <div class="monster-image"></div>
+                        <div class="monster-info">
+                            <span class="name">USER_CORE</span>
+                            <span class="element">NEUTRAL</span>
+                        </div>
+                    </div>
+                </section>
+            </main>
+
+            <footer>
+                <div id="controls">
+                    <button id="draw-card">DRAW</button>
+                    <button id="end-turn">END TURN</button>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <!-- PeerJS for P2P Multiplayer -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="game.js" type="module"></script>
+</body>
+</html>
