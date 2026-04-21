@@ -70,8 +70,9 @@ class Game {
 
     setupConnection() {
         this.conn.on('open', () => {
-            this.ui.status.innerText = 'CONECTADO';
-            this.log('¡Oponente conectado! Iniciando combate...');
+            this.ui.status.innerText = 'ONLINE';
+            this.ui.status.style.color = '#4ade80';
+            this.log('¡Enlace establecido! Prepárate para el duelo.');
             this.startRound();
         });
 
@@ -101,7 +102,8 @@ class Game {
         this.choices = { local: null, remote: null };
         this.rolls = { local: null, remote: null };
         
-        this.ui.phase.innerText = 'ELIGE TU POSTURA';
+        this.ui.phase.innerText = 'FASE DE POSTURA: ELIGE TU ELEMENTO';
+        this.ui.phase.style.color = 'var(--cyan)';
         this.ui.playerStance.innerText = '?';
         this.ui.oppStance.innerText = '?';
         this.ui.dieValue.innerText = '?';
@@ -116,12 +118,17 @@ class Game {
     onStanceSelect(stance) {
         this.choices.local = stance;
         this.ui.playerStance.innerText = STANCES[stance].icon;
+        this.ui.playerStance.style.color = 'white';
         
         this.ui.stanceBtns.forEach(btn => {
             btn.disabled = true;
             if(btn.dataset.stance === stance) btn.classList.add('selected');
         });
 
+        this.log(`Has elegido postura ${STANCES[stance].label}.`);
+        this.ui.phase.innerText = 'ESPERANDO AL RIVAL...';
+        this.ui.phase.style.color = '#aaa';
+        
         this.send('STANCE', stance);
         this.checkReveal();
     }
