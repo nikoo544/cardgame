@@ -1,18 +1,23 @@
-// Battle Nexus 1v1 - Core Logic Engine
+// Dungeon Duel: d20 Nexus - Core Logic Engine
 const STANCES = {
-    FIRE: { beats: 'EARTH', icon: '🔥', label: 'FUEGO' },
-    WATER: { beats: 'FIRE', icon: '💧', label: 'AGUA' },
-    EARTH: { beats: 'WATER', icon: '🌿', label: 'TIERRA' }
+    FIRE: { beats: 'EARTH', icon: '⚔️', label: 'ATAQUE' },
+    WATER: { beats: 'FIRE', icon: '🛡️', label: 'DEFENSA' },
+    EARTH: { beats: 'WATER', icon: '🧙', label: 'MAGIA' }
 };
 
-class Game {
+class DungeonGame {
     constructor() {
         this.peer = null;
         this.conn = null;
-        this.hp = { local: 100, remote: 100 };
-        this.choices = { local: null, remote: null };
-        this.rolls = { local: null, remote: null };
-        this.isHost = false;
+        
+        this.localHP = 100;
+        this.remoteHP = 100;
+        
+        this.localStance = null;
+        this.remoteStance = null;
+        
+        this.localRoll = null;
+        this.remoteRoll = null;
         
         this.initUI();
         this.initPeer();
@@ -24,8 +29,10 @@ class Game {
             copyBtn: document.getElementById('copy-btn'),
             phase: document.getElementById('phase-label'),
             log: document.getElementById('battle-log'),
-            playerHp: document.getElementById('player-hp'),
-            oppHp: document.getElementById('opp-hp'),
+            playerHpBar: document.getElementById('player-hp'),
+            playerHpText: document.querySelector('.player-field.local .hp-text'),
+            oppHpBar: document.getElementById('opp-hp'),
+            oppHpText: document.querySelector('.player-field.opponent .hp-text'),
             playerStance: document.getElementById('player-stance-reveal'),
             oppStance: document.getElementById('opp-stance-reveal'),
             dieValue: document.getElementById('die-value'),
@@ -49,8 +56,8 @@ class Game {
         this.peer.on('open', (id) => {
             if (!joinId) {
                 this.isHost = true;
-                this.ui.status.innerText = `ID: ${id}`;
-                this.log('Sistema listo. Esperando oponente...');
+                this.ui.status.innerText = `GRUPO: ${id}`;
+                this.log('Esperando a que un aventurero se una a la gesta...');
             } else {
                 this.connect(joinId);
             }
@@ -63,16 +70,16 @@ class Game {
     }
 
     connect(id) {
-        this.log(`Conectando a ${id}...`);
+        this.log(`Viajando a la mazmorra de ${id}...`);
         this.conn = this.peer.connect(id);
         this.setupConnection();
     }
 
     setupConnection() {
         this.conn.on('open', () => {
-            this.ui.status.innerText = 'ONLINE';
-            this.ui.status.style.color = '#4ade80';
-            this.log('¡Enlace establecido! Prepárate para el duelo.');
+            this.ui.status.innerText = 'AVENTURA EN CURSO';
+            this.ui.status.style.color = '#d4af37';
+            this.log('¡Se ha unido un compañero! Que comience el duelo.');
             this.startRound();
         });
 
@@ -81,29 +88,32 @@ class Game {
 
     handleData(data) {
         switch(data.type) {
-            case 'STANCE':
-                this.choices.remote = data.value;
-                this.log('El rival ha elegido su postura.');
+            case 'STANCE_SELECT':
+                this.remoteStance = data.value;
+                this.log('El rival prepara su movimiento...');
                 this.checkReveal();
                 break;
-            case 'ROLL':
-                this.rolls.remote = data.value;
-                this.log(`El rival lanzó el dado: ${data.value}`);
-                this.resolveTurn();
+            case 'DICE_ROLL':
+                this.remoteRoll = data.value;
+                this.log(`El rival ha lanzado su dado.`);
+                this.checkResolution();
                 break;
-            case 'SYNC_HP':
-                this.hp.local = data.hp;
-                this.updateHP();
+            case 'SYNC':
+                // Final safety sync of HP
+                this.localHP = data.oppHP; 
+                this.remoteHP = data.myHP;
+                this.updateUI();
                 break;
         }
     }
 
     startRound() {
-        this.choices = { local: null, remote: null };
-        this.rolls = { local: null, remote: null };
+        this.localStance = null;
+        this.remoteStance = null;
+        this.localRoll = null;
+        this.remoteRoll = null;
         
-        this.ui.phase.innerText = 'FASE DE POSTURA: ELIGE TU ELEMENTO';
-        this.ui.phase.style.color = 'var(--cyan)';
+        this.ui.phase.innerText = 'PREPARA TU ACCIÓN';
         this.ui.playerStance.innerText = '?';
         this.ui.oppStance.innerText = '?';
         this.ui.dieValue.innerText = '?';
@@ -116,49 +126,50 @@ class Game {
     }
 
     onStanceSelect(stance) {
-        this.choices.local = stance;
+        this.localStance = stance;
         this.ui.playerStance.innerText = STANCES[stance].icon;
-        this.ui.playerStance.style.color = 'white';
         
         this.ui.stanceBtns.forEach(btn => {
             btn.disabled = true;
             if(btn.dataset.stance === stance) btn.classList.add('selected');
         });
 
-        this.log(`Has elegido postura ${STANCES[stance].label}.`);
-        this.ui.phase.innerText = 'ESPERANDO AL RIVAL...';
-        this.ui.phase.style.color = '#aaa';
+        this.log(`Has adoptado la postura de ${STANCES[stance].label}.`);
+        this.ui.phase.innerText = 'ESPERANDO RIVAL...';
         
-        this.send('STANCE', stance);
+        this.send('STANCE_SELECT', stance);
         this.checkReveal();
     }
 
     checkReveal() {
-        if(this.choices.local && this.choices.remote) {
-            this.ui.phase.innerText = 'CHOQUE ELEMENTAL';
-            this.ui.oppStance.innerText = STANCES[this.choices.remote].icon;
+        if(this.localStance && this.remoteStance) {
+            this.ui.phase.innerText = '¡CHOQUE DE ACERO!';
+            this.ui.oppStance.innerText = STANCES[this.remoteStance].icon;
             
-            setTimeout(() => this.prepareAction(), 1500);
+            setTimeout(() => this.prepareRollPhase(), 1200);
         }
     }
 
-    prepareAction() {
-        const result = this.getClashResult();
-        this.clashWinner = result; // 'local', 'remote', or 'tie'
+    prepareRollPhase() {
+        // Calculate clash advantage
+        const l = this.localStance;
+        const r = this.remoteStance;
         
-        if(result === 'tie') this.log('¡Empate! Ambos lanzan dados.');
-        else if(result === 'local') this.log('¡Ventaja para ti! (+5 a tu dado)');
-        else this.log('¡Ventaja para el rival! (+5 a su dado)');
+        this.advantage = 'none';
+        if (l !== r) {
+            if (STANCES[l].beats === r) {
+                this.advantage = 'local';
+                this.log('¡Ventaja táctica! Tu ataque es más preciso (+5 al dado).');
+            } else {
+                this.advantage = 'remote';
+                this.log('¡El rival tiene la ventaja! Prepárate para el impacto.');
+            }
+        } else {
+            this.log('Fuerzas igualadas. Todo depende del azar.');
+        }
 
-        this.ui.phase.innerText = 'LANZA EL DADO (d20)';
+        this.ui.phase.innerText = 'LANZA EL d20';
         this.ui.rollBtn.disabled = false;
-    }
-
-    getClashResult() {
-        const l = this.choices.local;
-        const r = this.choices.remote;
-        if(l === r) return 'tie';
-        return (STANCES[l].beats === r) ? 'local' : 'remote';
     }
 
     onRollClick() {
@@ -167,54 +178,62 @@ class Game {
         
         setTimeout(() => {
             this.ui.dieValue.classList.remove('shake');
-            let roll = Math.floor(Math.random() * 20) + 1;
-            const bonus = (this.clashWinner === 'local') ? 5 : 0;
-            const final = roll + bonus;
+            const roll = Math.floor(Math.random() * 20) + 1;
+            const bonus = (this.advantage === 'local') ? 5 : 0;
+            const total = roll + bonus;
             
-            this.ui.dieValue.innerText = final;
-            this.rolls.local = final;
-            this.log(`Tu tirada: ${roll} ${bonus > 0 ? '+5 bono' : ''} = ${final}`);
+            this.ui.dieValue.innerText = total;
+            this.localRoll = total;
+            this.log(`Has sacado un ${roll} ${bonus > 0 ? '(+5 bono)' : ''} = ${total}.`);
             
-            this.send('ROLL', final);
-            this.resolveTurn();
-        }, 800);
+            this.send('DICE_ROLL', total);
+            this.checkResolution();
+        }, 1000);
     }
 
-    resolveTurn() {
-        if(this.rolls.local && this.rolls.remote) {
-            // Calculate Damage
-            const diff = this.rolls.local - this.rolls.remote;
-            
-            if(diff > 0) {
-                this.hp.remote -= diff;
-                this.log(`¡Ganas el intercambio! Infliges ${diff} de daño.`);
-            } else if(diff < 0) {
-                this.hp.local -= Math.abs(diff);
-                this.log(`¡Pierdes el intercambio! Recibes ${Math.abs(diff)} de daño.`);
-            } else {
-                this.log('¡Choque de fuerzas! Nadie recibe daño.');
-            }
-
-            this.updateHP();
-            this.send('SYNC_HP', { hp: this.hp.remote }); // Sync remote's view of their HP
-
-            if(this.hp.local <= 0 || this.hp.remote <= 0) {
-                this.endGame();
-            } else {
-                setTimeout(() => this.startRound(), 3000);
-            }
+    checkResolution() {
+        if(this.localRoll !== null && this.remoteRoll !== null) {
+            this.resolveTurn();
         }
     }
 
-    updateHP() {
-        this.ui.playerHp.style.width = `${Math.max(0, this.hp.local)}%`;
-        this.ui.oppHp.style.width = `${Math.max(0, this.hp.remote)}%`;
+    resolveTurn() {
+        const diff = this.localRoll - this.remoteRoll;
+        
+        if(diff > 0) {
+            this.remoteHP -= diff;
+            this.log(`¡ÉXITO! Infliges ${diff} de daño al rival.`);
+        } else if(diff < 0) {
+            this.localHP -= Math.abs(diff);
+            this.log(`¡FRACASO! Recibes ${Math.abs(diff)} de daño.`);
+        } else {
+            this.log('¡Empate en el fragor de la batalla!');
+        }
+
+        this.updateUI();
+        
+        // Sync HP for safety
+        this.send('SYNC', { myHP: this.localHP, oppHP: this.remoteHP });
+
+        if(this.localHP <= 0 || this.remoteHP <= 0) {
+            this.endGame();
+        } else {
+            setTimeout(() => this.startRound(), 3500);
+        }
+    }
+
+    updateUI() {
+        this.ui.playerHpBar.style.width = `${Math.max(0, this.localHP)}%`;
+        this.ui.oppHpBar.style.width = `${Math.max(0, this.remoteHP)}%`;
+        
+        if(this.ui.playerHpText) this.ui.playerHpText.innerText = `HP: ${Math.max(0, this.localHP)}/100`;
+        if(this.ui.oppHpText) this.ui.oppHpText.innerText = `HP: ${Math.max(0, this.remoteHP)}/100`;
     }
 
     endGame() {
-        const win = this.hp.local > 0;
-        this.ui.phase.innerText = win ? '¡VICTORIA!' : 'DERROTA';
-        this.log(win ? 'Has dominado el Nexus.' : 'Tu conexión se ha extinguido.');
+        const win = this.localHP > 0;
+        this.ui.phase.innerText = win ? '¡VICTORIA HEROICA!' : 'HAS CAÍDO EN COMBATE';
+        this.log(win ? 'La mazmorra es tuya.' : 'Tu aventura termina aquí.');
     }
 
     send(type, value) {
@@ -223,6 +242,7 @@ class Game {
 
     log(msg) {
         const p = document.createElement('div');
+        p.style.marginBottom = '5px';
         p.innerText = `> ${msg}`;
         this.ui.log.prepend(p);
     }
@@ -230,12 +250,12 @@ class Game {
     copyLink() {
         const url = `${window.location.origin}${window.location.pathname}?join=${this.peer.id}`;
         navigator.clipboard.writeText(url).then(() => {
-            this.ui.copyBtn.innerText = '¡COPIADO!';
-            setTimeout(() => this.ui.copyBtn.innerText = 'COPIAR LINK', 2000);
+            this.ui.copyBtn.innerText = '¡ENLACE COPIADO!';
+            setTimeout(() => this.ui.copyBtn.innerText = 'INVITAR AVENTURERO', 2000);
         });
     }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-    window.game = new Game();
+    window.game = new DungeonGame();
 });
