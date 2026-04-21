@@ -1,296 +1,172 @@
-// Nexus Tactics: Dungeon Chess - Logic Engine
-// P2P Multiplayer using PeerJS
+// Nexus Quest: Open World RPG - Logic Engine
 
-const PIECES = {
-    WARRIOR: { icon: '⚔️', hp: 50, atk: 10, def: 5, move: 'king', label: 'Guerrero' },
-    WIZARD: { icon: '🧙', hp: 30, atk: 15, def: 2, move: 'queen', label: 'Mago' },
-    ROGUE: { icon: '🗡️', hp: 35, atk: 12, def: 3, move: 'knight', label: 'Pícaro' },
-    CLERIC: { icon: '✨', hp: 40, atk: 8, def: 4, move: 'bishop', label: 'Clérigo' },
-    FIGHTER: { icon: '🛡️', hp: 45, atk: 9, def: 6, move: 'rook', label: 'Luchador' },
-    SCOUT: { icon: '🏹', hp: 25, atk: 11, def: 2, move: 'pawn', label: 'Explorador' }
-};
+const TILE_TYPES = ['grass', 'grass', 'forest', 'forest', 'mountain', 'village', 'dungeon'];
+const EVENTS = [
+    { type: 'TREASURE', msg: '¡Encuentras un cofre antiguo!', reward: { gold: 20, xp: 5 } },
+    { type: 'COMBAT', msg: '¡Un trasgo te embosca!', damage: 15, reward: { xp: 10, gold: 5 } },
+    { type: 'MERCHANT', msg: 'Un mercader te ofrece provisiones.', cost: 10, reward: { hp: 20 } },
+    { type: 'REST', msg: 'Un lugar tranquilo para descansar.', reward: { hp: 10 } }
+];
 
-class DungeonChess {
+class QuestGame {
     constructor() {
-        this.board = Array(64).fill(null);
-        this.selectedTile = null;
-        this.validMoves = [];
-        this.turn = 1; // 1 or 2
-        this.peer = null;
-        this.conn = null;
-        this.localPlayerNum = 1; 
-        this.deck = [
-            { id: 'HEAL', label: 'Curación', desc: 'Sana 15 HP a una unidad.', type: 'TARGET' },
-            { id: 'SMITE', label: 'Golpe Sagrado', desc: '+10 daño próximo ataque.', type: 'BUFF' },
-            { id: 'FIREBALL', label: 'Bola de Fuego', desc: '10 daño en área.', type: 'TARGET' }
-        ];
-        this.hand = [];
-        this.turnCount = 0;
-        
-        this.initBoard();
+        this.map = [];
+        this.localPlayer = {
+            name: 'Héroe',
+            icon: '⚔️',
+            hp: 100,
+            gold: 50,
+            xp: 0,
+            pos: 210 // Start near bottom
+        };
+        this.remotePlayer = null;
+        this.turn = 1;
+        this.localPlayerNum = 1;
+        this.isMoving = false;
+
+        this.initWelcome();
         this.initUI();
+        this.generateMap();
         this.initPeer();
     }
 
-    initBoard() {
-        // Player 1 (Bottom)
-        this.placePiece(56, 'FIGHTER', 1);
-        this.placePiece(57, 'ROGUE', 1);
-        this.placePiece(58, 'CLERIC', 1);
-        this.placePiece(59, 'WIZARD', 1);
-        this.placePiece(60, 'WARRIOR', 1);
-        this.placePiece(61, 'CLERIC', 1);
-        this.placePiece(62, 'ROGUE', 1);
-        this.placePiece(63, 'FIGHTER', 1);
-        for(let i=48; i<56; i++) this.placePiece(i, 'SCOUT', 1);
+    initWelcome() {
+        const startBtn = document.getElementById('start-game-btn');
+        const iconBtns = document.querySelectorAll('.icon-btn');
+        
+        iconBtns.forEach(btn => {
+            btn.onclick = () => {
+                iconBtns.forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                this.localPlayer.icon = btn.dataset.icon;
+            };
+        });
 
-        // Player 2 (Top)
-        this.placePiece(0, 'FIGHTER', 2);
-        this.placePiece(1, 'ROGUE', 2);
-        this.placePiece(2, 'CLERIC', 2);
-        this.placePiece(3, 'WIZARD', 2);
-        this.placePiece(4, 'WARRIOR', 2);
-        this.placePiece(5, 'CLERIC', 2);
-        this.placePiece(6, 'ROGUE', 2);
-        this.placePiece(7, 'FIGHTER', 2);
-        for(let i=8; i<16; i++) this.placePiece(i, 'SCOUT', 2);
+        startBtn.onclick = () => {
+            const name = document.getElementById('player-name').value;
+            if (name) this.localPlayer.name = name;
+            document.getElementById('welcome-screen').style.display = 'none';
+            document.getElementById('app').style.display = 'flex';
+            this.updatePlayerDisplay();
+            this.sendState();
+        };
     }
 
-    placePiece(index, type, owner) {
-        const stats = PIECES[type];
-        this.board[index] = { ...stats, type, owner, currentHP: stats.hp };
+    generateMap() {
+        // Deterministic-ish map if host
+        for (let i = 0; i < 225; i++) {
+            const type = TILE_TYPES[Math.floor(Math.random() * TILE_TYPES.length)];
+            const hasEvent = Math.random() < 0.15;
+            this.map[i] = { type, event: hasEvent ? Math.floor(Math.random() * EVENTS.length) : null };
+        }
     }
 
     initUI() {
         this.ui = {
-            board: document.getElementById('board'),
+            map: document.getElementById('map'),
             log: document.getElementById('battle-log'),
             status: document.getElementById('status'),
-            phase: document.getElementById('phase-status'),
-            details: document.getElementById('unit-details'),
-            dieValue: document.getElementById('die-value'),
             copyBtn: document.getElementById('copy-btn'),
-            turnLabel: document.getElementById('current-turn-label'),
-            hand: document.getElementById('card-hand')
+            eventContent: document.getElementById('event-content'),
+            eventChoices: document.getElementById('event-choices'),
+            hp: document.getElementById('hero-hp'),
+            gold: document.getElementById('hero-gold'),
+            xp: document.getElementById('hero-xp'),
+            nameDisplay: document.getElementById('hero-name-display'),
+            iconDisplay: document.getElementById('hero-icon-display'),
+            turnDisplay: document.getElementById('current-player-name')
         };
 
-        this.renderBoard();
+        this.renderMap();
         this.ui.copyBtn.onclick = () => this.copyLink();
     }
 
-    renderBoard() {
-        this.ui.board.innerHTML = '';
-        for (let i = 0; i < 64; i++) {
+    renderMap() {
+        this.ui.map.innerHTML = '';
+        for (let i = 0; i < 225; i++) {
             const tile = document.createElement('div');
-            const row = Math.floor(i / 8);
-            const col = i % 8;
-            tile.className = `tile ${(row + col) % 2 === 0 ? 'light' : 'dark'}`;
+            tile.className = `tile ${this.map[i].type}`;
             tile.dataset.index = i;
-            
-            if (this.selectedTile === i) tile.classList.add('selected');
-            if (this.validMoves.includes(i)) {
-                const target = this.board[i];
-                if (target && target.owner !== this.localPlayerNum) {
-                    tile.classList.add('attack-target');
-                } else {
-                    tile.classList.add('highlight');
-                }
+
+            if (this.localPlayer.pos === i) {
+                const token = document.createElement('div');
+                token.className = 'player-token';
+                token.innerText = this.localPlayer.icon;
+                tile.appendChild(token);
             }
 
-            const piece = this.board[i];
-            if (piece) {
-                const pEl = document.createElement('div');
-                pEl.className = `piece player${piece.owner}`;
-                pEl.innerText = piece.icon;
-                
-                const hpBar = document.createElement('div');
-                hpBar.className = 'hp-mini-bar';
-                const hpFill = document.createElement('div');
-                hpFill.className = 'hp-fill';
-                hpFill.style.width = `${(piece.currentHP / piece.hp) * 100}%`;
-                hpBar.appendChild(hpFill);
-                
-                tile.appendChild(pEl);
-                tile.appendChild(hpBar);
+            if (this.remotePlayer && this.remotePlayer.pos === i) {
+                const token = document.createElement('div');
+                token.className = 'player-token remote';
+                token.innerText = this.remotePlayer.icon;
+                tile.appendChild(token);
             }
 
-            tile.onclick = () => this.handleTileClick(i);
-            this.ui.board.appendChild(tile);
+            tile.onclick = () => this.handleMove(i);
+            this.ui.map.appendChild(tile);
         }
-        this.ui.turnLabel.innerText = `JUGADOR ${this.turn}`;
-        this.ui.turnLabel.style.color = this.turn === 1 ? 'white' : 'red';
     }
 
-    handleTileClick(index) {
-        if (this.turn !== this.localPlayerNum) {
-            this.log('No es tu turno, aventurero.');
-            return;
-        }
-
-        const piece = this.board[index];
-
-        // 1. Selecting a piece
-        if (piece && piece.owner === this.localPlayerNum) {
-            this.selectedTile = index;
-            this.validMoves = this.calculateValidMoves(index);
-            this.updateDetails(piece);
-            this.renderBoard();
-            return;
-        }
-
-        // 2. Moving/Attacking
-        if (this.selectedTile !== null && this.validMoves.includes(index)) {
-            const sourcePiece = this.board[this.selectedTile];
-            const targetPiece = this.board[index];
-
-            if (targetPiece) {
-                this.startCombat(this.selectedTile, index);
-            } else {
-                this.movePiece(this.selectedTile, index);
-            }
-            return;
-        }
-
-        // 3. Deselect
-        this.selectedTile = null;
-        this.validMoves = [];
-        this.renderBoard();
-    }
-
-    calculateValidMoves(index) {
-        const piece = this.board[index];
-        const moves = [];
-        const r = Math.floor(index / 8);
-        const c = index % 8;
-
-        const addMove = (row, col) => {
-            if (row >= 0 && row < 8 && col >= 0 && col < 8) {
-                const i = row * 8 + col;
-                const target = this.board[i];
-                if (!target || target.owner !== piece.owner) {
-                    moves.push(i);
-                    return !target; // Stop if there's a piece (to capture)
-                }
-            }
-            return false;
-        };
-
-        const dirs = {
-            plus: [[0,1],[0,-1],[1,0],[-1,0]],
-            cross: [[1,1],[1,-1],[-1,1],[-1,-1]],
-            knight: [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]]
-        };
-
-        if (piece.move === 'king' || piece.move === 'pawn') {
-            const step = (piece.owner === 1) ? -1 : 1;
-            [[step, 0], [step, 1], [step, -1], [0, 1], [0, -1], [-step, 0]].forEach(d => addMove(r + d[0], c + d[1]));
-        } else if (piece.move === 'queen') {
-            [...dirs.plus, ...dirs.cross].forEach(d => {
-                for(let s=1; s<8; s++) if(!addMove(r + d[0]*s, c + d[1]*s)) break;
-            });
-        } else if (piece.move === 'knight') {
-            dirs.knight.forEach(d => addMove(r + d[0], c + d[1]));
-        } else if (piece.move === 'bishop') {
-            dirs.cross.forEach(d => {
-                for(let s=1; s<8; s++) if(!addMove(r + d[0]*s, c + d[1]*s)) break;
-            });
-        } else if (piece.move === 'rook') {
-            dirs.plus.forEach(d => {
-                for(let s=1; s<8; s++) if(!addMove(r + d[0]*s, c + d[1]*s)) break;
-            });
-        }
-
-        return moves;
-    }
-
-    movePiece(from, to) {
-        this.board[to] = this.board[from];
-        this.board[from] = null;
-        this.selectedTile = null;
-        this.validMoves = [];
-        this.endTurn();
-        this.sendState();
-        this.renderBoard();
-    }
-
-    startCombat(from, to) {
-        const attacker = this.board[from];
-        const defender = this.board[to];
-        this.log(`¡Combate! ${attacker.label} ataca a ${defender.label}.`);
+    handleMove(index) {
+        if (this.turn !== this.localPlayerNum) return;
         
-        const roll = Math.floor(Math.random() * 20) + 1;
-        this.ui.dieValue.innerText = roll;
-        this.ui.dieValue.classList.add('shake');
-        
-        setTimeout(() => {
-            this.ui.dieValue.classList.remove('shake');
-            const damage = Math.max(1, (roll + attacker.atk) - defender.def);
-            defender.currentHP -= damage;
-            this.log(`${attacker.label} saca ${roll} e inflige ${damage} de daño.`);
-
-            if (defender.currentHP <= 0) {
-                this.log(`${defender.label} ha caído.`);
-                this.board[to] = this.board[from];
-                this.board[from] = null;
-            }
-            
-            this.selectedTile = null;
-            this.validMoves = [];
+        const dist = this.getDist(this.localPlayer.pos, index);
+        if (dist > 0 && dist <= 2) { // Max move 2
+            this.localPlayer.pos = index;
+            this.checkEvent(index);
             this.endTurn();
             this.sendState();
-            this.renderBoard();
-        }, 800);
+            this.renderMap();
+        }
+    }
+
+    getDist(i1, i2) {
+        const r1 = Math.floor(i1 / 15), c1 = i1 % 15;
+        const r2 = Math.floor(i2 / 15), c2 = i2 % 15;
+        return Math.abs(r1 - r2) + Math.abs(c1 - c2);
+    }
+
+    checkEvent(index) {
+        const tile = this.map[index];
+        if (tile.event !== null) {
+            const event = EVENTS[tile.event];
+            this.ui.eventContent.innerText = event.msg;
+            this.log(`Evento: ${event.msg}`);
+            
+            // Apply rewards/damage
+            if (event.reward) {
+                if (event.reward.gold) this.localPlayer.gold += event.reward.gold;
+                if (event.reward.xp) this.localPlayer.xp += event.reward.xp;
+                if (event.reward.hp) this.localPlayer.hp = Math.min(100, this.localPlayer.hp + event.reward.hp);
+            }
+            if (event.damage) {
+                this.localPlayer.hp -= event.damage;
+                this.log(`Recibes ${event.damage} de daño.`);
+            }
+
+            this.updatePlayerDisplay();
+            tile.event = null; // Event used
+        } else {
+            this.ui.eventContent.innerText = "El camino está despejado.";
+        }
+    }
+
+    updatePlayerDisplay() {
+        this.ui.hp.innerText = this.localPlayer.hp;
+        this.ui.gold.innerText = this.localPlayer.gold;
+        this.ui.xp.innerText = this.localPlayer.xp;
+        this.ui.nameDisplay.innerText = this.localPlayer.name;
+        this.ui.iconDisplay.innerText = this.localPlayer.icon;
     }
 
     endTurn() {
-        this.turnCount++;
         this.turn = this.turn === 1 ? 2 : 1;
-        if (this.turn === this.localPlayerNum && this.turnCount % 4 === 0) {
-            this.drawCard();
-        }
+        this.updateTurnDisplay();
     }
 
-    drawCard() {
-        const card = this.deck[Math.floor(Math.random() * this.deck.length)];
-        this.hand.push({ ...card, instanceId: Date.now() });
-        this.renderHand();
-        this.log(`¡Has robado una carta: ${card.label}!`);
-    }
-
-    renderHand() {
-        this.ui.hand.innerHTML = '';
-        this.hand.forEach(card => {
-            const el = document.createElement('div');
-            el.className = 'card';
-            el.innerHTML = `<strong>${card.label}</strong><br><small>${card.desc}</small>`;
-            el.onclick = () => this.useCard(card);
-            this.ui.hand.appendChild(el);
-        });
-    }
-
-    useCard(card) {
-        this.log(`Usando carta: ${card.label}`);
-        // Simple logic for example
-        if (card.id === 'HEAL' && this.selectedTile !== null) {
-            const piece = this.board[this.selectedTile];
-            if (piece && piece.owner === this.localPlayerNum) {
-                piece.currentHP = Math.min(piece.hp, piece.currentHP + 15);
-                this.log(`${piece.label} ha sido sanado.`);
-                this.hand = this.hand.filter(c => c.instanceId !== card.instanceId);
-                this.renderHand();
-                this.sendState();
-                this.renderBoard();
-            }
-        }
-    }
-
-    updateDetails(piece) {
-        this.ui.details.innerHTML = `
-            <strong>${piece.label}</strong><br>
-            HP: ${piece.currentHP}/${piece.hp}<br>
-            Ataque: ${piece.atk} | Def: ${piece.def}<br>
-            <small>Movimiento: ${piece.move}</small>
-        `;
+    updateTurnDisplay() {
+        const name = (this.turn === this.localPlayerNum) ? "TI" : (this.remotePlayer ? this.remotePlayer.name : "Oponente");
+        this.ui.turnDisplay.innerText = name;
     }
 
     log(msg) {
@@ -299,7 +175,7 @@ class DungeonChess {
         this.ui.log.prepend(p);
     }
 
-    // --- Multiplayer Logic ---
+    // --- PeerJS ---
 
     initPeer() {
         const params = new URLSearchParams(window.location.search);
@@ -309,9 +185,10 @@ class DungeonChess {
         this.peer.on('open', (id) => {
             if (!joinId) {
                 this.ui.status.innerText = `ID: ${id}`;
-                this.log('Nexus abierto. Esperando rival...');
+                this.log('Mundo creado. Esperando viajero...');
             } else {
                 this.localPlayerNum = 2;
+                this.localPlayer.pos = 14; // Start top right
                 this.connect(joinId);
             }
         });
@@ -329,22 +206,28 @@ class DungeonChess {
 
     setupConnection() {
         this.conn.on('open', () => {
-            this.ui.status.innerText = 'CONECTADO';
-            this.log('¡Conexión establecida! Prepárate para la batalla.');
+            this.ui.status.innerText = 'ONLINE';
+            this.log('¡Compañero encontrado! La aventura comienza.');
             this.sendState();
         });
         this.conn.on('data', (data) => {
             if (data.type === 'SYNC') {
-                this.board = data.board;
+                this.remotePlayer = data.player;
+                this.map = data.map || this.map;
                 this.turn = data.turn;
-                this.renderBoard();
+                this.renderMap();
+                this.updateTurnDisplay();
             }
         });
     }
 
     sendState() {
         if (this.conn) {
-            this.send('SYNC', { board: this.board, turn: this.turn });
+            this.send('SYNC', { 
+                player: this.localPlayer, 
+                map: this.map, 
+                turn: this.turn 
+            });
         }
     }
 
@@ -356,11 +239,11 @@ class DungeonChess {
         const url = `${window.location.origin}${window.location.pathname}?join=${this.peer.id}`;
         navigator.clipboard.writeText(url).then(() => {
             this.ui.copyBtn.innerText = '¡COPIADO!';
-            setTimeout(() => this.ui.copyBtn.innerText = 'INVITAR RIVAL', 2000);
+            setTimeout(() => this.ui.copyBtn.innerText = 'INVITAR COMPAÑERO', 2000);
         });
     }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-    window.game = new DungeonChess();
+    window.game = new QuestGame();
 });
