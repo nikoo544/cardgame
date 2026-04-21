@@ -1,66 +1,58 @@
-// Elemental Nexus: Multivac's Gambit - Logic Engine v2 (RPS + Dice)
-// Using PeerJS for P2P connection
-
+// Battle Nexus 1v1 - Core Logic Engine
 const STANCES = {
-    FIRE: { beats: 'EARTH', label: '🔥 FUEGO', color: '#ff4b2b' },
-    WATER: { beats: 'FIRE', label: '💧 AGUA', color: '#00d2ff' },
-    EARTH: { beats: 'WATER', label: '🌿 TIERRA', color: '#a8ff78' }
+    FIRE: { beats: 'EARTH', icon: '🔥', label: 'FUEGO' },
+    WATER: { beats: 'FIRE', icon: '💧', label: 'AGUA' },
+    EARTH: { beats: 'WATER', icon: '🌿', label: 'TIERRA' }
 };
 
-class GameManager {
+class Game {
     constructor() {
         this.peer = null;
         this.conn = null;
+        this.hp = { local: 100, remote: 100 };
+        this.choices = { local: null, remote: null };
+        this.rolls = { local: null, remote: null };
         this.isHost = false;
-        this.gameState = {
-            phase: 'WAITING', // WAITING, SELECTION, REVEAL, ACTION
-            localHP: 100,
-            remoteHP: 100,
-            localStance: null,
-            remoteStance: null,
-            clashWinner: null
-        };
-
-        this.initElements();
+        
+        this.initUI();
         this.initPeer();
     }
 
-    initElements() {
+    initUI() {
         this.ui = {
+            status: document.getElementById('status'),
+            copyBtn: document.getElementById('copy-btn'),
+            phase: document.getElementById('phase-label'),
             log: document.getElementById('battle-log'),
-            playerHP: document.querySelector('#player-monster .hp-fill'),
-            opponentHP: document.querySelector('#opponent-monster .hp-fill'),
-            playerStance: document.getElementById('player-stance-display'),
-            opponentStance: document.getElementById('opponent-stance-display'),
-            die: document.getElementById('die'),
+            playerHp: document.getElementById('player-hp'),
+            oppHp: document.getElementById('opp-hp'),
+            playerStance: document.getElementById('player-stance-reveal'),
+            oppStance: document.getElementById('opp-stance-reveal'),
+            dieValue: document.getElementById('die-value'),
             rollBtn: document.getElementById('roll-btn'),
-            status: document.getElementById('connection-status'),
-            copyBtn: document.getElementById('copy-link-btn'),
-            phaseInd: document.getElementById('phase-indicator'),
             stanceBtns: document.querySelectorAll('.stance-btn')
         };
 
         this.ui.stanceBtns.forEach(btn => {
-            btn.onclick = () => this.selectStance(btn.dataset.stance);
+            btn.onclick = () => this.onStanceSelect(btn.dataset.stance);
         });
 
-        this.ui.rollBtn.onclick = () => this.rollDice();
+        this.ui.rollBtn.onclick = () => this.onRollClick();
+        this.ui.copyBtn.onclick = () => this.copyLink();
     }
 
     initPeer() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const joinId = urlParams.get('join');
+        const params = new URLSearchParams(window.location.search);
+        const joinId = params.get('join');
         this.peer = new Peer();
 
         this.peer.on('open', (id) => {
             if (!joinId) {
                 this.isHost = true;
-                this.log(`ID de Sala: ${id}`);
                 this.ui.status.innerText = `ID: ${id}`;
-                this.ui.copyBtn.style.display = 'inline-block';
-                this.ui.copyBtn.onclick = () => this.copyGameLink(id);
+                this.log('Sistema listo. Esperando oponente...');
             } else {
-                this.connectToHost(joinId);
+                this.connect(joinId);
             }
         });
 
@@ -70,40 +62,49 @@ class GameManager {
         });
     }
 
-    connectToHost(id) {
-        this.log(`Conectando al Nexus: ${id}...`);
+    connect(id) {
+        this.log(`Conectando a ${id}...`);
         this.conn = this.peer.connect(id);
         this.setupConnection();
-    }
-
-    copyGameLink(id) {
-        const url = `${window.location.origin}${window.location.pathname}?join=${id}`;
-        navigator.clipboard.writeText(url).then(() => {
-            this.ui.copyBtn.innerText = '¡COPIADO!';
-            setTimeout(() => this.ui.copyBtn.innerText = 'COPIAR LINK', 2000);
-        });
     }
 
     setupConnection() {
         this.conn.on('open', () => {
             this.ui.status.innerText = 'CONECTADO';
-            this.log('Enlace neuronal establecido.');
-            this.startNewRound();
+            this.log('¡Oponente conectado! Iniciando combate...');
+            this.startRound();
         });
 
-        this.conn.on('data', (data) => this.handleRemoteData(data));
+        this.conn.on('data', (data) => this.handleData(data));
     }
 
-    startNewRound() {
-        this.gameState.phase = 'SELECTION';
-        this.gameState.localStance = null;
-        this.gameState.remoteStance = null;
-        this.gameState.clashWinner = null;
+    handleData(data) {
+        switch(data.type) {
+            case 'STANCE':
+                this.choices.remote = data.value;
+                this.log('El rival ha elegido su postura.');
+                this.checkReveal();
+                break;
+            case 'ROLL':
+                this.rolls.remote = data.value;
+                this.log(`El rival lanzó el dado: ${data.value}`);
+                this.resolveTurn();
+                break;
+            case 'SYNC_HP':
+                this.hp.local = data.hp;
+                this.updateHP();
+                break;
+        }
+    }
+
+    startRound() {
+        this.choices = { local: null, remote: null };
+        this.rolls = { local: null, remote: null };
         
-        this.ui.phaseInd.innerText = 'FASE: SELECCIÓN DE POSTURA';
-        this.ui.playerStance.innerText = 'ELIGE TU ELEMENTO';
-        this.ui.opponentStance.innerText = '???';
-        this.ui.opponentStance.style.color = 'var(--neon-purple)';
+        this.ui.phase.innerText = 'ELIGE TU POSTURA';
+        this.ui.playerStance.innerText = '?';
+        this.ui.oppStance.innerText = '?';
+        this.ui.dieValue.innerText = '?';
         
         this.ui.stanceBtns.forEach(btn => {
             btn.disabled = false;
@@ -112,125 +113,122 @@ class GameManager {
         this.ui.rollBtn.disabled = true;
     }
 
-    selectStance(stance) {
-        if(this.gameState.phase !== 'SELECTION') return;
-        
-        this.gameState.localStance = stance;
-        this.log(`Postura asumida: ${STANCES[stance].label}`);
-        this.ui.playerStance.innerText = STANCES[stance].label;
-        this.ui.playerStance.style.color = STANCES[stance].color;
+    onStanceSelect(stance) {
+        this.choices.local = stance;
+        this.ui.playerStance.innerText = STANCES[stance].icon;
         
         this.ui.stanceBtns.forEach(btn => {
-            btn.classList.toggle('selected', btn.dataset.stance === stance);
             btn.disabled = true;
+            if(btn.dataset.stance === stance) btn.classList.add('selected');
         });
 
-        this.sendData({ type: 'STANCE_SELECTED', stance });
-        this.checkClash();
+        this.send('STANCE', stance);
+        this.checkReveal();
     }
 
-    handleRemoteData(data) {
-        switch(data.type) {
-            case 'STANCE_SELECTED':
-                this.gameState.remoteStance = data.stance;
-                this.log('El oponente ha elegido su postura.');
-                this.checkClash();
-                break;
-            case 'DICE_ROLLED':
-                this.resolveBattle(data.roll, data.damage);
-                break;
-        }
-    }
-
-    checkClash() {
-        if (this.gameState.localStance && this.gameState.remoteStance) {
-            this.gameState.phase = 'REVEAL';
-            this.ui.phaseInd.innerText = 'FASE: CHOQUE ELEMENTAL';
+    checkReveal() {
+        if(this.choices.local && this.choices.remote) {
+            this.ui.phase.innerText = 'CHOQUE ELEMENTAL';
+            this.ui.oppStance.innerText = STANCES[this.choices.remote].icon;
             
-            setTimeout(() => this.resolveClash(), 1000);
+            setTimeout(() => this.prepareAction(), 1500);
         }
     }
 
-    resolveClash() {
-        const local = this.gameState.localStance;
-        const remote = this.gameState.remoteStance;
+    prepareAction() {
+        const result = this.getClashResult();
+        this.clashWinner = result; // 'local', 'remote', or 'tie'
         
-        this.ui.opponentStance.innerText = STANCES[remote].label;
-        this.ui.opponentStance.style.color = STANCES[remote].color;
+        if(result === 'tie') this.log('¡Empate! Ambos lanzan dados.');
+        else if(result === 'local') this.log('¡Ventaja para ti! (+5 a tu dado)');
+        else this.log('¡Ventaja para el rival! (+5 a su dado)');
 
-        if (local === remote) {
-            this.log('¡Empate elemental! El Nexo está en equilibrio.');
-            this.gameState.clashWinner = 'TIE';
-        } else if (STANCES[local].beats === remote) {
-            this.log(`¡Ventaja local! ${STANCES[local].label} domina a ${STANCES[remote].label}.`);
-            this.gameState.clashWinner = 'LOCAL';
-        } else {
-            this.log(`¡Desventaja! ${STANCES[remote].label} domina a ${STANCES[local].label}.`);
-            this.gameState.clashWinner = 'REMOTE';
-        }
-
-        this.gameState.phase = 'ACTION';
-        this.ui.phaseInd.innerText = 'FASE: ACCIÓN (LANZAR DADO)';
-        
-        if (this.gameState.clashWinner !== 'REMOTE') {
-            this.ui.rollBtn.disabled = false;
-        } else {
-            this.log('Esperando ataque del oponente...');
-        }
+        this.ui.phase.innerText = 'LANZA EL DADO (d20)';
+        this.ui.rollBtn.disabled = false;
     }
 
-    rollDice() {
+    getClashResult() {
+        const l = this.choices.local;
+        const r = this.choices.remote;
+        if(l === r) return 'tie';
+        return (STANCES[l].beats === r) ? 'local' : 'remote';
+    }
+
+    onRollClick() {
         this.ui.rollBtn.disabled = true;
-        this.ui.die.classList.add('shake');
+        this.ui.dieValue.classList.add('shake');
         
         setTimeout(() => {
-            this.ui.die.classList.remove('shake');
-            const roll = Math.floor(Math.random() * 20) + 1; // d20
-            const bonus = (this.gameState.clashWinner === 'LOCAL') ? 5 : 0;
-            const totalRoll = roll + bonus;
+            this.ui.dieValue.classList.remove('shake');
+            let roll = Math.floor(Math.random() * 20) + 1;
+            const bonus = (this.clashWinner === 'local') ? 5 : 0;
+            const final = roll + bonus;
             
-            this.ui.die.innerText = totalRoll;
+            this.ui.dieValue.innerText = final;
+            this.rolls.local = final;
+            this.log(`Tu tirada: ${roll} ${bonus > 0 ? '+5 bono' : ''} = ${final}`);
             
-            const damage = Math.floor(totalRoll * 0.8);
-            this.gameState.remoteHP -= damage;
-            
-            this.log(`¡Impacto crítico! Tirada ${roll} + Bono ${bonus} = ${totalRoll}. Daño: ${damage}.`);
-            this.updateUI();
-            
-            this.sendData({ type: 'DICE_ROLLED', roll: totalRoll, damage });
-            
-            setTimeout(() => this.startNewRound(), 3000);
-        }, 1000);
+            this.send('ROLL', final);
+            this.resolveTurn();
+        }, 800);
     }
 
-    resolveBattle(remoteRoll, damage) {
-        this.ui.die.innerText = remoteRoll;
-        this.gameState.localHP -= damage;
-        this.log(`El oponente ataca con una potencia de ${remoteRoll}. Recibes ${damage} de daño.`);
-        this.updateUI();
-        
-        if (this.gameState.localHP <= 0) {
-            this.log('CRITICAL FAILURE: Núcleo destruido.');
+    resolveTurn() {
+        if(this.rolls.local && this.rolls.remote) {
+            // Calculate Damage
+            const diff = this.rolls.local - this.rolls.remote;
+            
+            if(diff > 0) {
+                this.hp.remote -= diff;
+                this.log(`¡Ganas el intercambio! Infliges ${diff} de daño.`);
+            } else if(diff < 0) {
+                this.hp.local -= Math.abs(diff);
+                this.log(`¡Pierdes el intercambio! Recibes ${Math.abs(diff)} de daño.`);
+            } else {
+                this.log('¡Choque de fuerzas! Nadie recibe daño.');
+            }
+
+            this.updateHP();
+            this.send('SYNC_HP', { hp: this.hp.remote }); // Sync remote's view of their HP
+
+            if(this.hp.local <= 0 || this.hp.remote <= 0) {
+                this.endGame();
+            } else {
+                setTimeout(() => this.startRound(), 3000);
+            }
         }
-
-        setTimeout(() => this.startNewRound(), 3000);
     }
 
-    updateUI() {
-        this.ui.playerHP.style.width = `${Math.max(0, this.gameState.localHP)}%`;
-        this.ui.opponentHP.style.width = `${Math.max(0, this.gameState.remoteHP)}%`;
+    updateHP() {
+        this.ui.playerHp.style.width = `${Math.max(0, this.hp.local)}%`;
+        this.ui.oppHp.style.width = `${Math.max(0, this.hp.remote)}%`;
+    }
+
+    endGame() {
+        const win = this.hp.local > 0;
+        this.ui.phase.innerText = win ? '¡VICTORIA!' : 'DERROTA';
+        this.log(win ? 'Has dominado el Nexus.' : 'Tu conexión se ha extinguido.');
+    }
+
+    send(type, value) {
+        if(this.conn) this.conn.send({ type, value });
     }
 
     log(msg) {
-        const p = document.createElement('p');
+        const p = document.createElement('div');
         p.innerText = `> ${msg}`;
-        this.ui.log.appendChild(p);
-        this.ui.log.scrollTop = this.ui.log.scrollHeight;
+        this.ui.log.prepend(p);
     }
 
-    sendData(data) {
-        if(this.conn) this.conn.send(data);
+    copyLink() {
+        const url = `${window.location.origin}${window.location.pathname}?join=${this.peer.id}`;
+        navigator.clipboard.writeText(url).then(() => {
+            this.ui.copyBtn.innerText = '¡COPIADO!';
+            setTimeout(() => this.ui.copyBtn.innerText = 'COPIAR LINK', 2000);
+        });
     }
 }
 
-window.game = new GameManager();
+window.addEventListener('DOMContentLoaded', () => {
+    window.game = new Game();
+});

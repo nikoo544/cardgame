@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Elemental Nexus: Multivac's Gambit</title>
+    <title>Battle Nexus 1v1</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,70 +11,56 @@
 </head>
 <body>
     <div id="app">
-        <div id="game-container">
-            <header>
-                <h1 class="glitch-text">ELEMENTAL NEXUS</h1>
-                <div id="connection-controls">
-                    <div id="connection-status">Esperando conexión...</div>
-                    <button id="copy-link-btn" style="display:none; font-size: 0.7rem; padding: 5px 10px;">COPIAR LINK</button>
+        <header>
+            <div class="logo">BATTLE NEXUS</div>
+            <div id="connection-info">
+                <span id="status">Esperando...</span>
+                <button id="copy-btn" class="mini-btn">COPIAR LINK</button>
+            </div>
+        </header>
+
+        <main id="game-board">
+            <!-- Opponent -->
+            <section class="player-field opponent">
+                <div class="stats">
+                    <span class="name">RIVAL</span>
+                    <div class="hp-container"><div id="opp-hp" class="hp-bar" style="width:100%"></div></div>
                 </div>
-            </header>
-
-            <main>
-                <!-- Opponent Area -->
-                <section id="opponent-area" class="player-zone">
-                    <div class="monster-card" id="opponent-monster">
-                        <div class="hp-bar"><div class="hp-fill" style="width: 100%;"></div></div>
-                        <div class="monster-image"></div>
-                        <div class="monster-info">
-                            <span class="name">MULTIVAC_CORE</span>
-                            <span id="opponent-stance-display" class="element">???</span>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Battle Log & Dice -->
-                <section id="battle-nexus">
-                    <div id="dice-container">
-                        <div id="die" class="dice">?</div>
-                        <button id="roll-btn" disabled>ROLL LOGIC</button>
-                    </div>
-                    <div id="battle-log">
-                        <p>> System Initialized...</p>
-                        <p>> Awaiting Players...</p>
-                    </div>
-                </section>
-
-                <!-- Player Area -->
-                <section id="player-area" class="player-zone">
-                    <div id="selection-zone" class="selection-grid">
-                        <button class="stance-btn" data-stance="FIRE">🔥 FUEGO</button>
-                        <button class="stance-btn" data-stance="WATER">💧 AGUA</button>
-                        <button class="stance-btn" data-stance="EARTH">🌿 TIERRA</button>
-                    </div>
-                    <div class="monster-card" id="player-monster">
-                        <div class="hp-bar"><div class="hp-fill" style="width: 100%;"></div></div>
-                        <div class="monster-image"></div>
-                        <div class="monster-info">
-                            <span class="name">USER_CORE</span>
-                            <span id="player-stance-display" class="element">ESPERANDO...</span>
-                        </div>
-                    </div>
-                </section>
-
-                <div id="phase-indicator">FASE: PREPARACIÓN</div>
-            </main>
-
-            <footer>
-                <div id="controls">
-                    <button id="draw-card">DRAW</button>
-                    <button id="end-turn">END TURN</button>
+                <div id="opp-visual" class="visual-box">
+                    <div id="opp-stance-reveal" class="stance-text">?</div>
                 </div>
-            </footer>
-        </div>
+            </section>
+
+            <!-- Middle / Battle Log -->
+            <section id="middle-panel">
+                <div id="phase-label">ESPERANDO JUGADOR</div>
+                <div id="action-zone">
+                    <div id="die-box">
+                        <div id="die-value">?</div>
+                        <button id="roll-btn" disabled>LANZAR DADO</button>
+                    </div>
+                </div>
+                <div id="battle-log"></div>
+            </section>
+
+            <!-- Local Player -->
+            <section class="player-field local">
+                <div id="selection-grid">
+                    <button class="stance-btn" data-stance="FIRE">🔥 FUEGO</button>
+                    <button class="stance-btn" data-stance="WATER">💧 AGUA</button>
+                    <button class="stance-btn" data-stance="EARTH">🌿 TIERRA</button>
+                </div>
+                <div class="stats">
+                    <span class="name">TÚ</span>
+                    <div class="hp-container"><div id="player-hp" class="hp-bar" style="width:100%"></div></div>
+                </div>
+                <div id="player-visual" class="visual-box">
+                    <div id="player-stance-reveal" class="stance-text">?</div>
+                </div>
+            </section>
+        </main>
     </div>
 
-    <!-- PeerJS for P2P Multiplayer -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="game.js" type="module"></script>
 </body>
